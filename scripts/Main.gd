@@ -38,6 +38,7 @@ var preview_rig: Node3D
 
 var ui_layer: CanvasLayer
 var root_ui: Control
+var top_bar: HBoxContainer
 var top_currency: Label
 var menu_sub_lbl: Label
 var menu_title_lbl: Label
@@ -149,7 +150,7 @@ func _build_ui() -> void:
 	root_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
 	ui_layer.add_child(root_ui)
 
-	var top_bar := HBoxContainer.new()
+	top_bar = HBoxContainer.new()
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top_bar.offset_left = 18
 	top_bar.offset_right = -18
@@ -286,14 +287,15 @@ func _build_combat_hud(parent: Control) -> void:
 	combat_hud = Control.new()
 	combat_hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	combat_hud.visible = false
+	top_bar.visible = true
 	parent.add_child(combat_hud)
 
 	var top := HBoxContainer.new()
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = 22
 	top.offset_right = -22
-	top.offset_top = 46
-	top.offset_bottom = 122
+	top.offset_top = 14
+	top.offset_bottom = 90
 	top.add_theme_constant_override("separation", 12)
 	combat_hud.add_child(top)
 
@@ -471,6 +473,7 @@ func _on_exit_match() -> void:
 	match_active = false
 	audio.combat_music_active = false
 	combat_hud.visible = false
+	top_bar.visible = true
 	_show_panel(screen_menu)
 
 func _set_fps(fps_val: int) -> void:
@@ -593,6 +596,7 @@ func _start_match() -> void:
 	audio.combat_music_active = true
 	_show_panel(null)
 	combat_hud.visible = true
+	top_bar.visible = false
 
 func _on_player_defeated(_f: Node3D) -> void:
 	_handle_round_end(false)
@@ -676,6 +680,7 @@ func _handle_round_end(player_won: bool) -> void:
 
 func _show_result_overlay() -> void:
 	combat_hud.visible = false
+	top_bar.visible = true
 	_show_panel(screen_result)
 
 func _process(delta: float) -> void:
@@ -711,15 +716,15 @@ func _process(delta: float) -> void:
 
 	var mid_x: float = (player.position.x + enemy.position.x) * 0.5
 	var span: float = absf(player.position.x - enemy.position.x)
-	var target_z: float = clampf(5.6 + span * 0.65, 6.2, 10.5)
+	var target_z: float = clampf(4.6 + span * 0.62, 5.0, 8.2)
 	var sx: float = randf_range(-shake, shake) if shake > 0.0 else 0.0
 	var sy: float = randf_range(-shake, shake) if shake > 0.0 else 0.0
 	shake = maxf(0.0, shake - delta * 1.8)
 
 	cam.position.x = lerpf(cam.position.x, mid_x, delta * 6.0) + sx
 	cam.position.z = lerpf(cam.position.z, target_z, delta * 5.0)
-	cam.position.y = 1.95 + sy
-	cam.look_at(Vector3(cam.position.x, 1.15, 0.0))
+	cam.position.y = 1.65 + sy
+	cam.look_at(Vector3(cam.position.x, 1.05, 0.0))
 
 	hud_p_hp.set_ratio(float(player.hp) / maxf(1.0, float(player.max_hp)))
 	hud_p_en.set_ratio(float(player.energy) / 100.0)

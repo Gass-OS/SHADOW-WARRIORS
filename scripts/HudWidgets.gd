@@ -100,9 +100,9 @@ class SWCircleBtn extends Control:
 		draw_arc(c, r, 0.0, TAU, 36, Color(ring_col.r, ring_col.g, ring_col.b, 0.92 * alpha), 3.0, true)
 		draw_arc(c, r * 0.82, 0.0, TAU, 32, Color(1, 1, 1, 0.25 * alpha), 1.2, true)
 		var font: Font = ThemeDB.fallback_font
-		draw_string(font, c + Vector2(-r * 0.5, 4), label_txt, HORIZONTAL_ALIGNMENT_CENTER, r, 16, Color(1, 1, 1, 0.95 * alpha))
+		draw_string(font, Vector2(c.x - r * 0.9, c.y + 4), label_txt, HORIZONTAL_ALIGNMENT_CENTER, r * 1.8, 12, Color(1, 1, 1, 0.95 * alpha))
 		if sub_txt != "":
-			draw_string(font, c + Vector2(-r * 0.5, 19), sub_txt, HORIZONTAL_ALIGNMENT_CENTER, r, 10, Color(ring_col.r, ring_col.g, ring_col.b, 0.95 * alpha))
+			draw_string(font, Vector2(c.x - r * 0.9, c.y + 18), sub_txt, HORIZONTAL_ALIGNMENT_CENTER, r * 1.8, 9, Color(ring_col.r, ring_col.g, ring_col.b, 0.95 * alpha))
 
 class SWSlantedBar extends Control:
 	var ratio: float = 1.0

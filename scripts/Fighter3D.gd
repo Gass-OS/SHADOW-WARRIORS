@@ -83,28 +83,7 @@ func _build_quaternius_warrior() -> void:
 		return
 
 	# Pauldrons & Chest Crest on Clavicles / Spine
-	for bone in ["clavicle_l", "clavicle_r"]:
-		var pa := BoneAttachment3D.new()
-		pa.bone_name = bone
-		skel.add_child(pa)
-		var paul := MeshInstance3D.new()
-		var pm := SphereMesh.new()
-		pm.radius = 0.12
-		paul.mesh = pm
-		paul.material_override = armor_mat
-		paul.position = Vector3(0.06 if bone == "clavicle_r" else -0.06, 0.04, 0.0)
-		pa.add_child(paul)
 
-	var chest_att := BoneAttachment3D.new()
-	chest_att.bone_name = "spine_03"
-	skel.add_child(chest_att)
-	var crest := MeshInstance3D.new()
-	var cm := BoxMesh.new()
-	cm.size = Vector3(0.32, 0.22, 0.24)
-	crest.mesh = cm
-	crest.material_override = armor_mat
-	crest.position = Vector3(0, 0.05, 0.02)
-	chest_att.add_child(crest)
 
 	# Attach Beard on bearded warriors
 	if f_id in ["kasserini", "guardian", "executioner"]:
@@ -143,7 +122,7 @@ func _build_quaternius_warrior() -> void:
 
 	if w_type == "flail_shield":
 		var mace := MeshInstance3D.new()
-		var mm := SphereMesh.new(); mm.radius = 0.16
+		var mm := SphereMesh.new(); mm.radius = 0.14; mm.height = 0.28
 		mace.mesh = mm; mace.material_override = armor_mat
 		mace.position = Vector3(0, 0.04, b_len)
 		r_hand.add_child(mace)
