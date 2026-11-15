@@ -29,7 +29,6 @@ jobs:
           fi
           echo "ANDROID_HOME=$SDK_PATH" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_PATH" >> "$GITHUB_ENV"
-          ls -la "$SDK_PATH/build-tools" "$SDK_PATH/platforms"
 
       - name: Download Godot 4.7.2 & Android Export Templates
         run: |
@@ -65,10 +64,15 @@ jobs:
 
           sed -i 's|keystore/debug=""|keystore/debug="${{ github.workspace }}/debug.keystore"|' export_presets.cfg
 
-      - name: Import Project & Export Android APK
+      - name: Import, Validate Scripts & Export Android APK
         run: |
           mkdir -p build
           godot --headless --import || true
+          godot --headless --quit 2>&1 | tee godot_check.log
+          if grep -qE "Parse Error|SCRIPT ERROR|Failed to load script" godot_check.log; then
+            echo "GDScript error detected!"
+            exit 1
+          fi
           godot --headless --verbose --export-debug "Android" build/ShadowWarriorsTunisia.apk
           ls -lh build/ShadowWarriorsTunisia.apk
 
