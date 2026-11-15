@@ -1,0 +1,28 @@
+# Unreal Engine 5
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+.vs/
+.vscode/
+.idea/
+*.sln
+*.vcxproj*
+*.VC.db
+*.opensdf
+*.opendb
+*.sdf
+*.suo
+*.tmp
+*.log
+
+# Android / Gradle
+.gradle/
+local.properties
+*.apk
+*.aab
+
+# OS
+.DS_Store
+Thumbs.db
