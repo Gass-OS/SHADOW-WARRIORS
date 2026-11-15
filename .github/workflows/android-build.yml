@@ -1,0 +1,41 @@
+name: Build Android Prototype (UE5)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_config:
+        description: 'Shipping or Development'
+        required: true
+        default: 'Development'
+
+jobs:
+  package-android:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Verify Toolchain Environment
+        shell: pwsh
+        run: |
+          if (-not $env:UE_ROOT) { throw "UE_ROOT environment variable is not set." }
+          if (-not $env:ANDROID_HOME) { throw "ANDROID_HOME environment variable is not set." }
+          if (-not $env:NDK_ROOT) { throw "NDK_ROOT environment variable is not set." }
+
+      - name: Build and Package Android APK (ASTC)
+        shell: pwsh
+        run: |
+          & "$env:UE_ROOT/Engine/Build/BatchFiles/RunUAT.bat" BuildCookRun `
+            -project="${{ github.workspace }}/ShadowWarriorsTunisia.uproject" `
+            -noP4 -platform=Android -cookflavor=ASTC `
+            -clientconfig=${{ inputs.build_config }} `
+            -cook -allmaps -build -stage -pak -archive `
+            -archivedirectory="${{ github.workspace }}/Builds/Android"
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowWarriorsTunisia-Android-${{ inputs.build_config }}
+          path: Builds/Android/Android_ASTC/*.apk

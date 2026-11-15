@@ -1,0 +1,27 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.7",
+  "Category": "",
+  "Description": "Shadow Warriors: Tunisia - 3D Fighting Game",
+  "Modules": [
+    {
+      "Name": "ShadowWarriorsTunisia",
+      "Type": "Runtime",
+      "LoadingPhase": "Default",
+      "AdditionalDependencies": [
+        "Engine",
+        "AIModule",
+        "UMG"
+      ]
+    }
+  ],
+  "Plugins": [
+    { "Name": "EnhancedInput", "Enabled": true },
+    { "Name": "Niagara", "Enabled": true },
+    { "Name": "AndroidPermission", "Enabled": true }
+  ],
+  "TargetPlatforms": [
+    "Android",
+    "Windows"
+  ]
+}
