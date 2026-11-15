@@ -569,7 +569,7 @@ func _on_hit_landed(attacker: Node3D, defender: Node3D, atk_data: Dictionary) ->
 		_show_callout(str(i18n[save["lang"]]["parry"]))
 		return
 
-	var blocked := defender.state == "block" and not bool(atk_data["unblockable"])
+	var blocked: bool = defender.state == "block" and not bool(atk_data["unblockable"])
 	var dmg: float = maxf(2.0, roundf(float(atk_data["damage"]) * 0.18)) if blocked else float(atk_data["damage"])
 	if game_mode != "training":
 		defender.hp = maxf(0.0, float(defender.hp) - dmg)
