@@ -312,11 +312,11 @@ func _build_combat_hud(parent: Control) -> void:
 	hud_p_hp_txt = Label.new()
 	p_hdr.add_child(hud_p_hp_txt)
 
-	hud_p_hp = HudWidgets.SlantedBar.new()
+	hud_p_hp = HudWidgets.SWSlantedBar.new()
 	hud_p_hp.custom_minimum_size = Vector2(0, 16)
 	hud_p_hp.fill_col = Color(0.95, 0.76, 0.22)
 	p_col.add_child(hud_p_hp)
-	hud_p_en = HudWidgets.SlantedBar.new()
+	hud_p_en = HudWidgets.SWSlantedBar.new()
 	hud_p_en.custom_minimum_size = Vector2(0, 9)
 	hud_p_en.fill_col = Color(0.24, 0.84, 0.96)
 	p_col.add_child(hud_p_en)
@@ -350,12 +350,12 @@ func _build_combat_hud(parent: Control) -> void:
 	hud_e_pips.modulate = Color(1.0, 0.42, 0.32)
 	e_hdr.add_child(hud_e_pips)
 
-	hud_e_hp = HudWidgets.SlantedBar.new()
+	hud_e_hp = HudWidgets.SWSlantedBar.new()
 	hud_e_hp.custom_minimum_size = Vector2(0, 16)
 	hud_e_hp.fill_col = Color(0.95, 0.76, 0.22)
 	hud_e_hp.flip_rtl = true
 	e_col.add_child(hud_e_hp)
-	hud_e_en = HudWidgets.SlantedBar.new()
+	hud_e_en = HudWidgets.SWSlantedBar.new()
 	hud_e_en.custom_minimum_size = Vector2(0, 9)
 	hud_e_en.fill_col = Color(0.24, 0.84, 0.96)
 	hud_e_en.flip_rtl = true
@@ -369,7 +369,7 @@ func _build_combat_hud(parent: Control) -> void:
 	combat_hud.add_child(callout_lbl)
 
 	# Translucent Xbox-style Virtual Joystick (Bottom Left)
-	joy_stick = HudWidgets.VirtualJoystick.new()
+	joy_stick = HudWidgets.SWJoystick.new()
 	joy_stick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joy_stick.offset_left = 24
 	joy_stick.offset_right = 184
@@ -419,7 +419,7 @@ func _build_combat_hud(parent: Control) -> void:
 	combat_hud.add_child(exit_b)
 
 func _circle_btn(lbl: String, sub: String, col: Color, cb_down: Callable, cb_up: Callable, sz: float = 74.0) -> Control:
-	var b := HudWidgets.CircleActionBtn.new()
+	var b := HudWidgets.SWCircleBtn.new()
 	b.setup_btn(lbl, sub, col, sz)
 	b.btn_down.connect(cb_down)
 	b.btn_up.connect(cb_up)

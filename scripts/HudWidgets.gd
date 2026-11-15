@@ -1,6 +1,6 @@
 extends RefCounted
 
-class VirtualJoystick extends Control:
+class SWJoystick extends Control:
 	var axis_x: float = 0.0
 	var axis_y: float = 0.0
 	var touch_id: int = -1
@@ -52,7 +52,7 @@ class VirtualJoystick extends Control:
 		draw_circle(c + knob_offset, r * 0.34, Color(0.95, 0.96, 0.98, 0.72))
 		draw_arc(c + knob_offset, r * 0.34, 0.0, TAU, 32, Color(0.35, 0.85, 1.0, 0.85), 2.5, true)
 
-class CircleActionBtn extends Control:
+class SWCircleBtn extends Control:
 	signal btn_down
 	signal btn_up
 
@@ -104,7 +104,7 @@ class CircleActionBtn extends Control:
 		if sub_txt != "":
 			draw_string(font, c + Vector2(-r * 0.5, 19), sub_txt, HORIZONTAL_ALIGNMENT_CENTER, r, 10, Color(ring_col.r, ring_col.g, ring_col.b, 0.95 * alpha))
 
-class SlantedBar extends Control:
+class SWSlantedBar extends Control:
 	var ratio: float = 1.0
 	var fill_col: Color = Color(0.95, 0.76, 0.2)
 	var flip_rtl: bool = false
