@@ -2,133 +2,206 @@ extends Node3D
 
 var torches: Array = []
 var dust_motes: Array = []
-var time_acc := 0.0
+var banners: Array = []
+var time_acc: float = 0.0
 
 func _ready() -> void:
 	_build_environment()
-	_build_kasserine_stage()
+	_build_kasserine_bridge_arena()
+
+func _make_normal_tex(freq: float, strength: float) -> ImageTexture:
+	var noise := FastNoiseLite.new()
+	noise.frequency = freq
+	var img: Image = noise.get_image(128, 128)
+	img.bump_map_to_normal_map(strength)
+	return ImageTexture.create_from_image(img)
 
 func _build_environment() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.16, 0.09, 0.08)
-	sky_mat.sky_horizon_color = Color(0.68, 0.35, 0.18)
-	sky_mat.ground_bottom_color = Color(0.18, 0.11, 0.08)
-	sky_mat.ground_horizon_color = Color(0.45, 0.25, 0.14)
+	sky_mat.sky_top_color = Color(0.18, 0.32, 0.52)
+	sky_mat.sky_horizon_color = Color(0.62, 0.74, 0.85)
+	sky_mat.ground_bottom_color = Color(0.16, 0.20, 0.25)
+	sky_mat.ground_horizon_color = Color(0.55, 0.65, 0.76)
 	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.85
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.42, 0.25, 0.16)
-	env.fog_density = 0.014
+	env.fog_light_color = Color(0.45, 0.58, 0.74)
+	env.fog_density = 0.016
 
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
 
 	var sun := DirectionalLight3D.new()
-	sun.light_color = Color(1.0, 0.78, 0.52)
-	sun.light_energy = 1.9
-	sun.rotation_degrees = Vector3(-42, 35, 0)
+	sun.light_color = Color(1.0, 0.86, 0.68)
+	sun.light_energy = 1.95
+	sun.rotation_degrees = Vector3(-36, 38, 0)
 	sun.shadow_enabled = true
 	add_child(sun)
 
-func _build_kasserine_stage() -> void:
-	var sand_mat := StandardMaterial3D.new()
-	sand_mat.albedo_color = Color(0.52, 0.36, 0.23)
-	sand_mat.roughness = 0.92
+	var rim_sky := DirectionalLight3D.new()
+	rim_sky.light_color = Color(0.42, 0.68, 1.0)
+	rim_sky.light_energy = 0.75
+	rim_sky.rotation_degrees = Vector3(20, -145, 0)
+	add_child(rim_sky)
+
+func _build_kasserine_bridge_arena() -> void:
+	var wood_norm := _make_normal_tex(0.14, 3.0)
+	var stone_norm := _make_normal_tex(0.08, 4.0)
+
+	var wood_mat := StandardMaterial3D.new()
+	wood_mat.albedo_color = Color(0.38, 0.27, 0.18)
+	wood_mat.roughness = 0.88
+	wood_mat.normal_enabled = true
+	wood_mat.normal_texture = wood_norm
+
 	var stone_mat := StandardMaterial3D.new()
-	stone_mat.albedo_color = Color(0.62, 0.50, 0.37)
-	stone_mat.roughness = 0.85
-	var rock_mat := StandardMaterial3D.new()
-	rock_mat.albedo_color = Color(0.27, 0.18, 0.14)
-	rock_mat.roughness = 0.95
+	stone_mat.albedo_color = Color(0.56, 0.48, 0.38)
+	stone_mat.roughness = 0.86
+	stone_mat.normal_enabled = true
+	stone_mat.normal_texture = stone_norm
 
-	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 15.0
-	floor_mesh.bottom_radius = 16.5
-	floor_mesh.height = 1.0
-	var floor_node := MeshInstance3D.new()
-	floor_node.mesh = floor_mesh
-	floor_node.material_override = sand_mat
-	floor_node.position = Vector3(0, -0.5, 0)
-	add_child(floor_node)
+	var cliff_mat := StandardMaterial3D.new()
+	cliff_mat.albedo_color = Color(0.24, 0.30, 0.36)
+	cliff_mat.roughness = 0.94
+	cliff_mat.normal_enabled = true
+	cliff_mat.normal_texture = stone_norm
 
-	for i in range(-3, 4, 2):
-		var p_mesh := BoxMesh.new()
-		p_mesh.size = Vector3(1.0, 4.5 + absf(float(i)) * 0.35, 1.0)
-		var pillar := MeshInstance3D.new()
-		pillar.mesh = p_mesh
-		pillar.material_override = stone_mat
-		pillar.position = Vector3(float(i) * 3.0, 2.2, -6.2)
-		add_child(pillar)
+	var roof_mat := StandardMaterial3D.new()
+	roof_mat.albedo_color = Color(0.68, 0.55, 0.34)
+	roof_mat.roughness = 0.9
 
-	var beam_mesh := BoxMesh.new()
-	beam_mesh.size = Vector3(14.5, 0.85, 1.1)
-	var beam := MeshInstance3D.new()
-	beam.mesh = beam_mesh
-	beam.material_override = stone_mat
-	beam.position = Vector3(0, 5.1, -6.2)
-	add_child(beam)
+	var banner_mat := StandardMaterial3D.new()
+	banner_mat.albedo_color = Color(0.68, 0.10, 0.12)
+	banner_mat.roughness = 0.75
 
-	for i in range(9):
-		var peak_mesh := CylinderMesh.new()
-		peak_mesh.top_radius = 0.0
-		peak_mesh.bottom_radius = 4.2 + float(i % 3) * 1.8
-		peak_mesh.height = 9.0 + float(i % 4) * 2.8
+	# Timber Bridge Planks (Foreground Arena Deck)
+	for i in range(-18, 19):
+		var plank := MeshInstance3D.new()
+		var pm := BoxMesh.new()
+		pm.size = Vector3(0.54, 0.25, 5.4)
+		plank.mesh = pm
+		plank.material_override = wood_mat
+		plank.position = Vector3(float(i) * 0.58, -0.14 + (float(i % 2) * 0.015), 0.0)
+		add_child(plank)
+
+	# Bridge Wooden Railing & Posts behind fighters
+	var rail := MeshInstance3D.new()
+	var rail_m := BoxMesh.new()
+	rail_m.size = Vector3(22.0, 0.16, 0.16)
+	rail.mesh = rail_m
+	rail.material_override = wood_mat
+	rail.position = Vector3(0, 1.15, -2.5)
+	add_child(rail)
+
+	var rail2 := MeshInstance3D.new()
+	rail2.mesh = rail_m
+	rail2.material_override = wood_mat
+	rail2.position = Vector3(0, 0.62, -2.5)
+	add_child(rail2)
+
+	for i in range(-4, 5):
+		var post := MeshInstance3D.new()
+		var post_m := BoxMesh.new()
+		post_m.size = Vector3(0.22, 1.45, 0.22)
+		post.mesh = post_m
+		post.material_override = wood_mat
+		post.position = Vector3(float(i) * 2.5, 0.68, -2.5)
+		add_child(post)
+
+	# Midground Kasserine Village Structures & Watchtower
+	for hx in [-7.8, 7.6]:
+		var house := MeshInstance3D.new()
+		var hm := BoxMesh.new()
+		hm.size = Vector3(4.2, 3.0, 3.6)
+		house.mesh = hm
+		house.material_override = stone_mat
+		house.position = Vector3(hx, 0.8, -8.5)
+		add_child(house)
+
+		var roof := MeshInstance3D.new()
+		var rm := CylinderMesh.new()
+		rm.top_radius = 0.0
+		rm.bottom_radius = 3.2
+		rm.height = 1.8
+		rm.radial_segments = 4
+		roof.mesh = rm
+		roof.material_override = roof_mat
+		roof.rotation_degrees = Vector3(0, 45, 0)
+		roof.position = Vector3(hx, 3.2, -8.5)
+		add_child(roof)
+
+		var banner := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.55, 1.9, 0.05)
+		banner.mesh = bm
+		banner.material_override = banner_mat
+		banner.position = Vector3(hx * 0.72, 1.6, -6.5)
+		add_child(banner)
+		banners.append(banner)
+
+	# Distant Watchtower Silhouette
+	var tower := MeshInstance3D.new()
+	var tm := BoxMesh.new()
+	tm.size = Vector3(1.8, 7.5, 1.8)
+	tower.mesh = tm
+	tower.material_override = cliff_mat
+	tower.position = Vector3(3.4, 3.0, -16.0)
+	add_child(tower)
+
+	# Deep Misty Chaambi Mountain Spires
+	for i in range(11):
 		var peak := MeshInstance3D.new()
-		peak.mesh = peak_mesh
-		peak.material_override = rock_mat
-		peak.position = Vector3(float(i - 4) * 6.0, 4.0, -17.0 - float(i % 2) * 4.5)
+		var pkm := CylinderMesh.new()
+		pkm.top_radius = 0.4 + float(i % 2) * 0.6
+		pkm.bottom_radius = 4.6 + float(i % 3) * 2.1
+		pkm.height = 14.0 + float(i % 4) * 4.5
+		peak.mesh = pkm
+		peak.material_override = cliff_mat
+		peak.position = Vector3(float(i - 5) * 5.2, 5.2, -26.0 - float(i % 3) * 6.0)
 		add_child(peak)
 
+	# Torch Braziers
 	var ember_mat := StandardMaterial3D.new()
-	ember_mat.albedo_color = Color(1.0, 0.65, 0.18)
+	ember_mat.albedo_color = Color(1.0, 0.72, 0.24)
 	ember_mat.emission_enabled = true
-	ember_mat.emission = Color(1.0, 0.45, 0.08)
-	ember_mat.emission_energy_multiplier = 3.0
+	ember_mat.emission = Color(1.0, 0.48, 0.12)
+	ember_mat.emission_energy_multiplier = 3.2
 
-	for x_pos in [-5.2, 5.2]:
-		var stand_mesh := CylinderMesh.new()
-		stand_mesh.top_radius = 0.24
-		stand_mesh.bottom_radius = 0.34
-		stand_mesh.height = 1.5
-		var stand := MeshInstance3D.new()
-		stand.mesh = stand_mesh
-		stand.material_override = rock_mat
-		stand.position = Vector3(x_pos, 0.75, -4.4)
-		add_child(stand)
-
-		var orb_mesh := SphereMesh.new()
-		orb_mesh.radius = 0.22
+	for tx in [-4.5, 4.5]:
 		var orb := MeshInstance3D.new()
-		orb.mesh = orb_mesh
+		var om := SphereMesh.new()
+		om.radius = 0.18
+		orb.mesh = om
 		orb.material_override = ember_mat
-		orb.position = Vector3(x_pos, 1.72, -4.4)
+		orb.position = Vector3(tx, 1.48, -2.5)
 		add_child(orb)
 
-		var light := OmniLight3D.new()
-		light.light_color = Color(1.0, 0.52, 0.16)
-		light.light_energy = 2.6
-		light.omni_range = 10.5
-		light.position = orb.position
-		add_child(light)
-		torches.append(light)
+		var lt := OmniLight3D.new()
+		lt.light_color = Color(1.0, 0.56, 0.18)
+		lt.light_energy = 2.2
+		lt.omni_range = 8.5
+		lt.position = orb.position
+		add_child(lt)
+		torches.append(lt)
 
-	var dust_mesh := BoxMesh.new()
-	dust_mesh.size = Vector3(0.06, 0.06, 0.06)
-	var dust_mat := StandardMaterial3D.new()
-	dust_mat.albedo_color = Color(0.95, 0.78, 0.52)
-	dust_mat.emission_enabled = true
-	dust_mat.emission = Color(0.85, 0.62, 0.3)
+	# Drifting Wind Motes
+	var mote_m := BoxMesh.new()
+	mote_m.size = Vector3(0.05, 0.05, 0.05)
+	var mote_mat := StandardMaterial3D.new()
+	mote_mat.albedo_color = Color(0.95, 0.90, 0.75)
+	mote_mat.emission_enabled = true
+	mote_mat.emission = Color(0.85, 0.80, 0.65)
 	for i in range(36):
 		var mote := MeshInstance3D.new()
-		mote.mesh = dust_mesh
-		mote.material_override = dust_mat
-		mote.position = Vector3(randf_range(-10.0, 10.0), randf_range(0.3, 4.5), randf_range(-5.0, 3.0))
+		mote.mesh = mote_m
+		mote.material_override = mote_mat
+		mote.position = Vector3(randf_range(-10.0, 10.0), randf_range(0.3, 4.2), randf_range(-4.0, 2.5))
 		add_child(mote)
 		dust_motes.append(mote)
 
@@ -136,9 +209,12 @@ func _process(delta: float) -> void:
 	time_acc += delta
 	for i in torches.size():
 		var lt: OmniLight3D = torches[i]
-		lt.light_energy = 2.4 + sin(time_acc * 11.0 + float(i) * 2.5) * 0.5
+		lt.light_energy = 2.0 + sin(time_acc * 12.0 + float(i) * 2.1) * 0.45
+	for i in banners.size():
+		var b: MeshInstance3D = banners[i]
+		b.rotation.x = sin(time_acc * 3.0 + float(i)) * 0.08
 	for mote in dust_motes:
 		var m: MeshInstance3D = mote
-		m.position.x += delta * 1.35
+		m.position.x += delta * 1.4
 		if m.position.x > 10.5:
 			m.position.x = -10.5
