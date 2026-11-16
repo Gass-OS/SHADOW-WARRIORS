@@ -31,6 +31,42 @@ func play_parry() -> void:
 func play_whoosh() -> void:
 	play_tone(320.0, 0.09, 0.12, -190.0, 0)
 
+func play_ability(kind: String) -> void:
+	# Distinct tone combo per ability kind, built on play_tone.
+	match kind:
+		"fire":
+			play_tone(220.0, 0.30, 0.34, 420.0, 1)
+			play_tone(110.0, 0.35, 0.30, -40.0, 0)
+		"shadow":
+			play_tone(880.0, 0.16, 0.20, -620.0, 0)
+			play_tone(440.0, 0.22, 0.18, -300.0, 0)
+		"counter":
+			play_tone(660.0, 0.14, 0.30, 0.0, 0)
+			play_tone(990.0, 0.20, 0.26, 120.0, 0)
+		"blink":
+			play_tone(1240.0, 0.12, 0.20, -900.0, 0)
+			play_tone(620.0, 0.18, 0.20, -380.0, 0)
+		"quake":
+			play_tone(70.0, 0.42, 0.42, -25.0, 1)
+			play_tone(140.0, 0.25, 0.28, -60.0, 0)
+		"sand":
+			play_tone(300.0, 0.35, 0.22, 260.0, 1)
+			play_tone(520.0, 0.28, 0.16, 180.0, 0)
+		"slam":
+			play_tone(60.0, 0.45, 0.45, -18.0, 1)
+			play_tone(180.0, 0.30, 0.30, -90.0, 0)
+		"lunge":
+			play_tone(500.0, 0.14, 0.26, 420.0, 0)
+			play_tone(760.0, 0.18, 0.22, 260.0, 0)
+		"cleave":
+			play_tone(130.0, 0.34, 0.36, -55.0, 1)
+			play_tone(260.0, 0.22, 0.24, 120.0, 0)
+		"tide":
+			play_tone(420.0, 0.26, 0.26, 300.0, 0)
+			play_tone(210.0, 0.34, 0.24, -120.0, 0)
+		_:
+			play_tone(520.0, 0.20, 0.26, 240.0, 0)
+
 func _process(delta: float) -> void:
 	if playback == null and player != null and player.playing:
 		playback = player.get_stream_playback()

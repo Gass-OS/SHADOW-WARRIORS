@@ -17,9 +17,17 @@ var save := {
 	"weapon_lv": {"kasserini": 1},
 	"last_gift_ts": 0,
 	"lang": "en",
-	"fps": 60
+	"fps": 60,
+	"ai_difficulty": "normal"
 }
 const SAVE_PATH := "user://sw_tunisia_save.json"
+
+# v0.3.0 AI difficulty table
+const AI_DIFF := {
+	"easy": {"react": 0.55, "block": 0.15, "spc": 0.10, "use_ult": false, "ult_phase": 99, "dmg": 0.8, "approach": 0.85, "dodge": 0.0},
+	"normal": {"react": 0.40, "block": 0.42, "spc": 0.35, "use_ult": true, "ult_phase": 2, "dmg": 1.0, "approach": 1.0, "dodge": 0.0},
+	"hard": {"react": 0.18, "block": 0.60, "spc": 0.55, "use_ult": true, "ult_phase": 1, "dmg": 1.15, "approach": 1.15, "dodge": 0.35}
+}
 
 var selected_idx: int = 0
 var game_mode: String = "boss"
@@ -31,6 +39,26 @@ var ai_timer: float = 0.0
 var survival_wave: int = 1
 var p_rounds: int = 0
 var e_rounds: int = 0
+
+# --- v0.3.0 intro ---
+var intro_active: bool = false
+var intro_cards: Array = []
+var intro_card_idx: int = 0
+var intro_card_t: float = 0.0
+var intro_cue_played: bool = false
+
+# --- v0.3.0 fatality ---
+var fatality_active: bool = false
+var fatality_pending: bool = false
+var fatality_bonus: int = 0
+var fatality_player_won: bool = false
+
+# --- v0.3.0 ability FX tracking (probe-visible) ---
+var bursts_spawned: int = 0
+var last_burst_color: Color = Color.WHITE
+
+# --- v0.3.0 joystick auto-defend (hold stick away from enemy) ---
+var joy_block_active: bool = false
 
 var player: Node3D
 var enemy: Node3D
@@ -56,13 +84,20 @@ var hud_p_hp: Control
 var hud_p_en: Control
 var hud_e_hp: Control
 var hud_e_en: Control
+var hud_p_st: Control
+var hud_e_st: Control
 var hud_p_hp_txt: Label
 var hud_e_hp_txt: Label
 var hud_p_pips: Label
 var hud_e_pips: Label
 var hud_timer: Label
 var hud_phase: Label
+var hud_ai_lbl: Label
 var callout_lbl: Label
+var intro_lbl: Label
+var fatality_lbl: Label
+var fatality_btn: Control
+var flash_rect: ColorRect
 var joy_stick: Control
 var btn_spc: Control
 var btn_ult: Control
@@ -70,11 +105,14 @@ var btn_ult: Control
 var select_detail_lbl: Label
 var select_action_btn: Button
 var select_upgrade_btn: Button
+var diff_btns: Dictionary = {}
 var result_title: Label
 var result_reward: Label
 
 func _ready() -> void:
 	_load_save()
+	if not save.has("ai_difficulty"):
+		save["ai_difficulty"] = "normal"
 	arena = Arena3DScript.new()
 	add_child(arena)
 
@@ -114,6 +152,16 @@ func _refresh_currency() -> void:
 		var can_claim: bool = (now_ts - int(save.get("last_gift_ts", 0))) >= 3600
 		gift_btn.text = "GIFT CHEST READY (+250 Dinars)" if can_claim else "GIFT CLAIMED (Wait 1h)"
 		gift_btn.disabled = not can_claim
+
+func _tr(key: String) -> String:
+	var i18n := GameData.get_i18n()
+	var dict: Dictionary = i18n.get(str(save.get("lang", "en")), i18n["en"])
+	if dict.has(key):
+		return str(dict[key])
+	return str(i18n["en"].get(key, key))
+
+func _current_diff() -> Dictionary:
+	return AI_DIFF.get(str(save.get("ai_difficulty", "normal")), AI_DIFF["normal"])
 
 func _make_btn(txt: String, col: Color, cb: Callable) -> Button:
 	var b := Button.new()
@@ -195,7 +243,7 @@ func _build_ui() -> void:
 	m_box.add_child(gift_btn)
 	_refresh_currency()
 
-	screen_select = _create_modal_panel(root_ui, Vector2(720, 410))
+	screen_select = _create_modal_panel(root_ui, Vector2(720, 470))
 	var s_box := VBoxContainer.new()
 	s_box.add_theme_constant_override("separation", 10)
 	screen_select.add_child(s_box)
@@ -218,6 +266,17 @@ func _build_ui() -> void:
 
 	select_upgrade_btn = _make_btn("UPGRADE WEAPON (150 Dinars)", Color(0.95, 0.8, 0.35), _upgrade_selected_weapon)
 	s_box.add_child(select_upgrade_btn)
+
+	# v0.3.0 AI difficulty selector (above FIGHT)
+	var diff_row := HBoxContainer.new()
+	diff_row.add_theme_constant_override("separation", 8)
+	s_box.add_child(diff_row)
+	for d_key in ["easy", "normal", "hard"]:
+		var db := _make_btn(_tr(d_key).to_upper(), Color(0.85, 0.85, 0.85), _set_difficulty.bind(d_key))
+		db.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		diff_row.add_child(db)
+		diff_btns[d_key] = db
+	_refresh_diff_buttons()
 
 	var s_foot := HBoxContainer.new()
 	s_foot.add_theme_constant_override("separation", 12)
@@ -290,6 +349,13 @@ func _build_combat_hud(parent: Control) -> void:
 	top_bar.visible = true
 	parent.add_child(combat_hud)
 
+	# Fullscreen flash overlay for ability / fatality FX (mouse ignored)
+	flash_rect = ColorRect.new()
+	flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash_rect.color = Color(1, 1, 1, 0)
+	combat_hud.add_child(flash_rect)
+
 	var top := HBoxContainer.new()
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = 22
@@ -299,7 +365,7 @@ func _build_combat_hud(parent: Control) -> void:
 	top.add_theme_constant_override("separation", 12)
 	combat_hud.add_child(top)
 
-	# Player HUD (Slanted Gold HP + Cyan Energy)
+	# Player HUD (Slanted Gold HP + Cyan Energy + Green Stamina)
 	var p_col := VBoxContainer.new()
 	p_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(p_col)
@@ -322,6 +388,10 @@ func _build_combat_hud(parent: Control) -> void:
 	hud_p_en.custom_minimum_size = Vector2(0, 9)
 	hud_p_en.fill_col = Color(0.24, 0.84, 0.96)
 	p_col.add_child(hud_p_en)
+	hud_p_st = HudWidgets.SWSlantedBar.new()
+	hud_p_st.custom_minimum_size = Vector2(0, 5)
+	hud_p_st.fill_col = Color(0.30, 0.90, 0.35)
+	p_col.add_child(hud_p_st)
 
 	# Center Timer
 	var c_col := VBoxContainer.new()
@@ -335,6 +405,12 @@ func _build_combat_hud(parent: Control) -> void:
 	hud_phase = Label.new()
 	hud_phase.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	c_col.add_child(hud_phase)
+	hud_ai_lbl = Label.new()
+	hud_ai_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hud_ai_lbl.add_theme_font_size_override("font_size", 13)
+	hud_ai_lbl.modulate = Color(0.85, 0.85, 0.85)
+	hud_ai_lbl.text = "AI: NORMAL"
+	c_col.add_child(hud_ai_lbl)
 
 	# Enemy HUD
 	var e_col := VBoxContainer.new()
@@ -362,6 +438,11 @@ func _build_combat_hud(parent: Control) -> void:
 	hud_e_en.fill_col = Color(0.24, 0.84, 0.96)
 	hud_e_en.flip_rtl = true
 	e_col.add_child(hud_e_en)
+	hud_e_st = HudWidgets.SWSlantedBar.new()
+	hud_e_st.custom_minimum_size = Vector2(0, 5)
+	hud_e_st.fill_col = Color(0.30, 0.90, 0.35)
+	hud_e_st.flip_rtl = true
+	e_col.add_child(hud_e_st)
 
 	callout_lbl = Label.new()
 	callout_lbl.set_anchors_preset(Control.PRESET_CENTER)
@@ -369,6 +450,44 @@ func _build_combat_hud(parent: Control) -> void:
 	callout_lbl.modulate = Color(0.32, 0.92, 1.0)
 	callout_lbl.visible = false
 	combat_hud.add_child(callout_lbl)
+
+	# Intro card label (NAME vs NAME / ROUND N / FIGHT!)
+	intro_lbl = Label.new()
+	intro_lbl.set_anchors_preset(Control.PRESET_CENTER)
+	intro_lbl.offset_left = -420
+	intro_lbl.offset_right = 420
+	intro_lbl.offset_top = -50
+	intro_lbl.offset_bottom = 50
+	intro_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	intro_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	intro_lbl.add_theme_font_size_override("font_size", 44)
+	intro_lbl.modulate = Color(1.0, 0.82, 0.30)
+	intro_lbl.visible = false
+	combat_hud.add_child(intro_lbl)
+
+	# Fatality banner label
+	fatality_lbl = Label.new()
+	fatality_lbl.set_anchors_preset(Control.PRESET_CENTER)
+	fatality_lbl.offset_left = -420
+	fatality_lbl.offset_right = 420
+	fatality_lbl.offset_top = -60
+	fatality_lbl.offset_bottom = 60
+	fatality_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fatality_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	fatality_lbl.add_theme_font_size_override("font_size", 46)
+	fatality_lbl.modulate = Color(1.0, 0.25, 0.15)
+	fatality_lbl.visible = false
+	combat_hud.add_child(fatality_lbl)
+
+	# Fatality button (bottom center, gold/red circle)
+	fatality_btn = _circle_btn("FATALITY", "FINISH", Color(1.0, 0.25, 0.15), _on_fatality_pressed, _on_noop, 96.0)
+	fatality_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	fatality_btn.offset_left = -48
+	fatality_btn.offset_right = 48
+	fatality_btn.offset_top = -160
+	fatality_btn.offset_bottom = -64
+	fatality_btn.visible = false
+	combat_hud.add_child(fatality_btn)
 
 	# Translucent Xbox-style Virtual Joystick (Bottom Left)
 	joy_stick = HudWidgets.SWJoystick.new()
@@ -379,27 +498,35 @@ func _build_combat_hud(parent: Control) -> void:
 	joy_stick.offset_bottom = -24
 	combat_hud.add_child(joy_stick)
 
-	# Modern Circular Xbox-Colored Multi-Touch Action Cluster (Bottom Right)
-	var pad := GridContainer.new()
-	pad.columns = 3
+	# v0.3.0 action cluster: Xbox-style DIAMOND of exactly 4 circular
+	# buttons, bottom-right. Top Y = HEAVY, left X = STRIKE, right B = ULT,
+	# bottom A = ABILITY (label = fighter's ability short name). Jump and
+	# defend live on the joystick now (up = jump, back = block, down =
+	# crouch), so there is no JUMP or PARRY button here. DODGE stays
+	# bottom-left near the joystick.
+	var pad := Control.new()
 	pad.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	pad.offset_left = -268
+	pad.offset_left = -260
 	pad.offset_right = -20
-	pad.offset_top = -186
+	pad.offset_top = -230
 	pad.offset_bottom = -20
-	pad.add_theme_constant_override("h_separation", 10)
-	pad.add_theme_constant_override("v_separation", 10)
 	combat_hud.add_child(pad)
 
-	btn_ult = _circle_btn("ULT", "RB", Color(0.22, 0.88, 1.0), func(): _try_attack("ult"), _on_noop)
-	btn_spc = _circle_btn("SPC", "LB", Color(0.75, 0.45, 1.0), func(): _try_attack("spc"), _on_noop)
-	var b_jump := _circle_btn("JUMP", "UP", Color(0.92, 0.92, 0.92), _on_jump_pressed, _on_noop)
-	var b_block := _circle_btn("PARRY", "B", Color(0.95, 0.28, 0.28), _on_block_down, _on_block_up)
+	btn_ult = _circle_btn("ULT", "B", Color(0.95, 0.28, 0.28), func(): _try_attack("ult"), _on_noop)
+	btn_spc = _circle_btn("SPC", "A", Color(0.24, 0.86, 0.42), func(): _try_attack("spc"), _on_noop)
 	var b_heavy := _circle_btn("HEAVY", "Y", Color(0.98, 0.78, 0.20), func(): _try_attack("heavy"), _on_noop)
 	var b_light := _circle_btn("STRIKE", "X", Color(0.25, 0.65, 1.0), func(): _try_attack("light"), _on_noop)
 
-	for b in [btn_ult, btn_spc, b_jump, b_block, b_heavy, b_light]:
-		pad.add_child(b)
+	# Diamond positions inside the 240x210 pad (buttons are 74px):
+	# Y top (83, 0), X left (0, 68), B right (166, 68), A bottom (83, 136)
+	b_heavy.position = Vector2(83, 0)
+	b_light.position = Vector2(0, 68)
+	btn_ult.position = Vector2(166, 68)
+	btn_spc.position = Vector2(83, 136)
+	pad.add_child(b_heavy)
+	pad.add_child(b_light)
+	pad.add_child(btn_ult)
+	pad.add_child(btn_spc)
 
 	var b_dodge := _circle_btn("DODGE", "A", Color(0.24, 0.86, 0.42), _on_dodge_pressed, _on_noop, 64.0)
 	b_dodge.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -430,6 +557,90 @@ func _circle_btn(lbl: String, sub: String, col: Color, cb_down: Callable, cb_up:
 func _on_noop() -> void:
 	pass
 
+# --- v0.3.0 ability FX helpers ---
+
+func _ability_color(kind: String) -> Color:
+	match kind:
+		"fire":
+			return Color(1.0, 0.45, 0.10)
+		"shadow":
+			return Color(0.65, 0.35, 1.0)
+		"counter":
+			return Color(1.0, 0.82, 0.25)
+		"blink":
+			return Color(0.30, 0.65, 1.0)
+		"quake":
+			return Color(0.62, 0.50, 0.34)
+		"sand":
+			return Color(1.0, 0.62, 0.20)
+		"slam":
+			return Color(1.0, 0.20, 0.15)
+		"lunge":
+			return Color(1.0, 0.85, 0.30)
+		"cleave":
+			return Color(1.0, 0.35, 0.12)
+		"tide":
+			return Color(0.25, 0.90, 0.95)
+		_:
+			return Color(0.75, 0.45, 1.0)
+
+func spawn_burst(pos: Vector3, col: Color, count: int = 40, speed: float = 6.0) -> void:
+	var p := GPUParticles3D.new()
+	p.amount = count
+	p.lifetime = 0.7
+	p.one_shot = true
+	p.explosiveness = 0.9
+	p.emitting = true
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3(0, 1, 0)
+	mat.spread = 180.0
+	mat.initial_velocity_min = speed * 0.5
+	mat.initial_velocity_max = speed
+	mat.gravity = Vector3(0, -4, 0)
+	mat.scale_min = 0.05
+	mat.scale_max = 0.12
+	p.process_material = mat
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.12, 0.12)
+	var qm := StandardMaterial3D.new()
+	qm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	qm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	qm.albedo_color = col
+	quad.material = qm
+	p.draw_pass_1 = quad
+	p.position = pos
+	add_child(p)
+	bursts_spawned += 1
+	last_burst_color = col
+	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
+
+func flash_screen(col: Color, alpha: float = 0.22) -> void:
+	if flash_rect == null:
+		return
+	flash_rect.color = Color(col.r, col.g, col.b, alpha)
+	var tw := create_tween()
+	tw.tween_property(flash_rect, "color:a", 0.0, 0.4)
+
+func _on_attack_started(attacker: Node3D, atk_data: Dictionary) -> void:
+	if str(atk_data.get("type", "")) != "spc":
+		return
+	var kind: String = str(atk_data.get("kind", ""))
+	if kind == "":
+		return
+	var col: Color = _ability_color(kind)
+	var foe: Node3D = enemy if attacker == player else player
+	# Teleport abilities reposition at cast time (Main knows the opponent)
+	if foe != null:
+		if kind == "shadow_dash":
+			attacker.position.x = clampf(foe.position.x - attacker.facing * 1.2, -8.5, 8.5)
+		elif kind == "blink":
+			attacker.position.x = clampf(foe.position.x + attacker.facing * 1.2, -8.5, 8.5)
+	spawn_burst(Vector3(attacker.position.x, 1.2, 0), col, 40 if kind != "quake" else 70, 6.0 if kind != "quake" else 4.0)
+	flash_screen(col, 0.30 if kind == "quake" else 0.22)
+	if kind == "quake":
+		shake = maxf(shake, 0.5)
+	audio.play_ability(kind)
+
 func _on_claim_gift() -> void:
 	save["dinars"] = int(save["dinars"]) + 250
 	save["gems"] = int(save["gems"]) + 15
@@ -453,24 +664,15 @@ func _on_back_from_select() -> void:
 	_clear_preview()
 	_show_panel(screen_menu)
 
-func _on_jump_pressed() -> void:
-	if player != null:
-		player.jump()
-
 func _on_dodge_pressed() -> void:
-	if player != null and player.dodge(joy_stick.axis_x):
+	if match_active and player != null and player.dodge(joy_stick.axis_x):
 		audio.play_whoosh()
-
-func _on_block_down() -> void:
-	if player != null:
-		player.set_block(true)
-
-func _on_block_up() -> void:
-	if player != null:
-		player.set_block(false)
 
 func _on_exit_match() -> void:
 	match_active = false
+	intro_active = false
+	joy_block_active = false
+	_end_fatality_ui()
 	audio.combat_music_active = false
 	combat_hud.visible = false
 	top_bar.visible = true
@@ -481,9 +683,28 @@ func _set_fps(fps_val: int) -> void:
 	Engine.max_fps = fps_val
 	_persist_save()
 
+func _set_difficulty(d_key: String) -> void:
+	save["ai_difficulty"] = d_key
+	_persist_save()
+	_refresh_diff_buttons()
+	_refresh_ai_label()
+
+func _refresh_diff_buttons() -> void:
+	var cur: String = str(save.get("ai_difficulty", "normal"))
+	for k in diff_btns.keys():
+		var b: Button = diff_btns[k]
+		b.modulate = Color(1.0, 0.8, 0.3) if str(k) == cur else Color(0.65, 0.65, 0.65)
+
+func _refresh_ai_label() -> void:
+	if hud_ai_lbl != null:
+		hud_ai_lbl.text = "AI: " + _tr(str(save.get("ai_difficulty", "normal"))).to_upper()
+
 func _try_attack(type: String) -> void:
+	if not match_active:
+		return
 	if player != null and player.start_attack(type):
-		audio.play_whoosh()
+		if type != "spc":
+			audio.play_whoosh()
 
 func _show_panel(panel: PanelContainer) -> void:
 	for p in [screen_menu, screen_select, screen_map, screen_settings, screen_result]:
@@ -512,13 +733,18 @@ func _select_fighter(idx: int) -> void:
 	var f_id: String = str(f["id"])
 	var unlocked: bool = _is_fighter_unlocked(f_id)
 	var lv: int = int(save["weapon_lv"].get(f_id, 1))
-	select_detail_lbl.text = "%s (%s)\n%s\nHP: %d  |  ATK: %d  |  SPD: %d" % [
+	var ab: Dictionary = f.get("ability", {})
+	select_detail_lbl.text = "%s (%s)\n%s\n%s\nAbility: %s — %s\nHP: %d  |  ATK: %d  |  SPD: %d" % [
 		str(f["name"]), ("LV %d" % lv) if unlocked else ("LOCKED - %d Dinars" % int(f["cost"])),
-		str(f["style"]), int(float(f["hp"]) + float(lv - 1) * 20.0),
+		str(f["style"]), str(f.get("lore", "")),
+		str(ab.get("name", "—")), str(ab.get("desc", "")),
+		int(float(f["hp"]) + float(lv - 1) * 20.0),
 		int(float(f["atk"]) + float(lv - 1) * 4.5), int(float(f["speed"]) * 15.0)
 	]
 	select_upgrade_btn.visible = unlocked
 	select_action_btn.text = "FIGHT!" if unlocked else ("UNLOCK (%d Dinars)" % int(f["cost"]))
+	if btn_spc != null:
+		btn_spc.set_label_txt(str(ab.get("short", "SPC")))
 
 	_clear_preview()
 	preview_rig = Fighter3DScript.new()
@@ -560,9 +786,31 @@ func _apply_lang(lang: String) -> void:
 	menu_sub_lbl.text = str(dict["subtitle"])
 	menu_title_lbl.text = str(dict["title"])
 	_persist_save()
+	_refresh_ai_label()
+
+# --- v0.3.0 intro ---
+
+func _round_number() -> int:
+	return p_rounds + e_rounds + 1
+
+func _build_intro_cards() -> Array:
+	var fighters := GameData.get_fighters()
+	var p_name: String = str(fighters[selected_idx]["name"])
+	var e_cfg: Dictionary = GameData.get_boss() if game_mode == "boss" else fighters[(selected_idx + survival_wave) % fighters.size()]
+	var e_name: String = str(e_cfg["name"])
+	var vs_card: String = "%s vs %s" % [p_name, e_name]
+	if game_mode == "training":
+		return [[vs_card, 1.1], ["TRAINING — " + _tr("fight"), 0.7]]
+	if game_mode == "survival":
+		return [[vs_card, 1.1], ["%s %d" % [_tr("wave"), survival_wave], 0.7], [_tr("fight"), 0.5]]
+	if game_mode == "boss" and _round_number() > 1:
+		return [["%s %d" % [_tr("round"), _round_number()], 0.7], [_tr("fight"), 0.5]]
+	return [[vs_card, 1.1], ["%s %d" % [_tr("round"), _round_number()], 0.7], [_tr("fight"), 0.5]]
 
 func _start_match() -> void:
 	_clear_preview()
+	_end_fatality_ui()
+	joy_block_active = false
 	if player != null:
 		player.queue_free()
 	if enemy != null:
@@ -577,6 +825,7 @@ func _start_match() -> void:
 	player.setup(p_cfg, true, p_lv)
 	player.position = Vector3(-2.6, 0, 0)
 	player.hit_landed.connect(_on_hit_landed)
+	player.attack_started.connect(_on_attack_started)
 	player.defeated.connect(_on_player_defeated)
 	add_child(player)
 
@@ -584,6 +833,7 @@ func _start_match() -> void:
 	enemy.setup(e_cfg, false, 1)
 	enemy.position = Vector3(2.6, 0, 0)
 	enemy.hit_landed.connect(_on_hit_landed)
+	enemy.attack_started.connect(_on_attack_started)
 	enemy.defeated.connect(_on_enemy_defeated)
 	add_child(enemy)
 
@@ -592,11 +842,45 @@ func _start_match() -> void:
 	hud_p_pips.text = "● ".repeat(p_rounds) + "○ ".repeat(2 - p_rounds)
 	hud_e_pips.text = "● ".repeat(e_rounds) + "○ ".repeat(2 - e_rounds)
 	round_time = 99.0
-	match_active = true
+	_refresh_ai_label()
+	if btn_spc != null:
+		btn_spc.set_label_txt(str(p_cfg.get("ability", {}).get("short", "SPC")))
 	audio.combat_music_active = true
 	_show_panel(null)
 	combat_hud.visible = true
 	top_bar.visible = false
+
+	# Intro: camera swoops in from far while the cards play; no input/AI yet.
+	match_active = false
+	intro_active = true
+	intro_cards = _build_intro_cards()
+	intro_card_idx = 0
+	intro_card_t = 0.0
+	intro_cue_played = false
+	cam.position = Vector3(0, 3.4, 11.0)
+	intro_lbl.text = str(intro_cards[0][0])
+	intro_lbl.visible = true
+
+func _advance_intro(delta: float) -> void:
+	if intro_card_idx >= intro_cards.size():
+		return
+	intro_card_t += delta
+	var card_dur: float = float(intro_cards[intro_card_idx][1])
+	var is_fight_card: bool = intro_card_idx == intro_cards.size() - 1
+	if is_fight_card and not intro_cue_played:
+		audio.play_tone(880.0, 0.25, 0.32, 220.0, 0)
+		intro_cue_played = true
+	if intro_card_t >= card_dur:
+		intro_card_idx += 1
+		intro_card_t = 0.0
+		intro_cue_played = false
+		if intro_card_idx >= intro_cards.size():
+			intro_active = false
+			intro_lbl.visible = false
+			match_active = true
+			round_time = 99.0
+		else:
+			intro_lbl.text = str(intro_cards[intro_card_idx][0])
 
 func _on_player_defeated(_f: Node3D) -> void:
 	_handle_round_end(false)
@@ -607,6 +891,44 @@ func _on_enemy_defeated(_f: Node3D) -> void:
 func _on_hit_landed(attacker: Node3D, defender: Node3D, atk_data: Dictionary) -> void:
 	if defender.state == "dodge" or defender.state == "dead":
 		return
+	var dist: float = absf(attacker.position.x - defender.position.x)
+
+	# v0.3.0 Bronze Counter: defender in counter stance reflects 1.5x damage
+	if str(defender.state) == "counter" and not bool(atk_data["unblockable"]):
+		var reflect: float = float(atk_data["damage"]) * 1.5
+		if game_mode != "training":
+			attacker.hp = maxf(0.0, float(attacker.hp) - reflect)
+		attacker.state = "hitstun"
+		attacker.state_timer = 0.30
+		attacker.vx = float(defender.facing) * 5.0 / attacker.weight_factor()
+		defender.state = "idle"
+		defender.active_attack = {}
+		defender.counter_timer = 0.0
+		spawn_burst(Vector3(attacker.position.x, 1.2, 0), Color(1.0, 0.82, 0.25), 30, 5.0)
+		flash_screen(Color(1.0, 0.82, 0.25), 0.25)
+		audio.play_parry()
+		hitstop = 0.10
+		shake = 0.20
+		if float(attacker.hp) <= 0.0:
+			attacker.state = "dead"
+			attacker.emit_signal("defeated", attacker)
+		return
+
+	# v0.3.0 CLASH: both mid-attack and in each other's range -> cancel both
+	if str(defender.state) == "attack" and defender.active_attack.has("range"):
+		if dist <= float(defender.active_attack["range"]):
+			attacker.state = "idle"
+			attacker.active_attack = {}
+			defender.state = "idle"
+			defender.active_attack = {}
+			attacker.vx = -float(attacker.facing) * 3.0
+			defender.vx = float(defender.facing) * 3.0
+			spawn_burst(Vector3((attacker.position.x + defender.position.x) * 0.5, 1.3, 0), Color(1, 1, 1), 24, 5.0)
+			audio.play_parry()
+			hitstop = 0.08
+			shake = 0.12
+			return
+
 	if defender.state == "parry" and not bool(atk_data["unblockable"]):
 		audio.play_parry()
 		hitstop = 0.12
@@ -617,8 +939,34 @@ func _on_hit_landed(attacker: Node3D, defender: Node3D, atk_data: Dictionary) ->
 		_show_callout(str(GameData.get_i18n()[save["lang"]]["parry"]))
 		return
 
+	# v0.3.0 combo damage scaling (consecutive hits by same attacker within 1.2s)
+	if float(attacker.combo_timer) > 0.0:
+		attacker.combo_count += 1
+	else:
+		attacker.combo_count = 1
+	attacker.combo_timer = 1.2
+	var combo_mult: float = 1.0
+	if attacker.combo_count == 2:
+		combo_mult = 0.95
+	elif attacker.combo_count == 3:
+		combo_mult = 0.90
+	elif attacker.combo_count >= 4:
+		combo_mult = 0.85
+	# Getting hit resets the victim's own combo chain
+	defender.combo_count = 0
+	defender.combo_timer = 0.0
+
 	var blocked: bool = (str(defender.state) == "block") and not bool(atk_data["unblockable"])
-	var dmg: float = maxf(2.0, roundf(float(atk_data["damage"]) * 0.18)) if blocked else float(atk_data["damage"])
+	var base_dmg: float = float(atk_data["damage"]) * combo_mult
+	# v0.3.0 AI difficulty damage multiplier (enemy attacks only)
+	if attacker == enemy:
+		base_dmg *= float(_current_diff()["dmg"])
+	var chip_mult: float = float(atk_data.get("chip_mult", 1.0))
+	var dmg: float = maxf(2.0, roundf(base_dmg * 0.18 * chip_mult)) if blocked else base_dmg
+	# v0.3.0 crouch: low stance takes 30% less damage (also applies to chip
+	# damage when the crouching defender is also blocking)
+	if str(defender.state) == "crouch" or bool(defender.crouch_held):
+		dmg *= 0.7
 	if game_mode != "training":
 		defender.hp = maxf(0.0, float(defender.hp) - dmg)
 	attacker.energy = minf(100.0, float(attacker.energy) + (12.0 if str(atk_data["type"]) == "light" else 18.0))
@@ -627,10 +975,26 @@ func _on_hit_landed(attacker: Node3D, defender: Node3D, atk_data: Dictionary) ->
 	hitstop = 0.04 if str(atk_data["type"]) == "light" else 0.09
 	shake = 0.08 if blocked else (0.38 if str(atk_data["type"]) == "ult" else 0.16)
 
-	defender.vx = float(attacker.facing) * (3.0 if blocked else (8.5 if str(atk_data["type"]) == "ult" else 5.2))
-	if not blocked:
+	# v0.3.0 weight-based knockback
+	var knock_mult: float = float(atk_data.get("knock_mult", 1.0))
+	defender.vx = float(attacker.facing) * (3.0 if blocked else (8.5 if str(atk_data["type"]) == "ult" else 5.2)) * knock_mult / defender.weight_factor()
+	if blocked:
+		# v0.3.0 blockstun: blocked defender cannot act for 0.18s
+		defender.blockstun_timer = 0.18
+	else:
 		defender.state = "hitstun"
 		defender.state_timer = 0.24 if str(atk_data["type"]) == "light" else 0.42
+		# v0.3.0 ability status effects (only on a clean hit)
+		var kind: String = str(atk_data.get("kind", ""))
+		if kind == "fire" and game_mode != "training":
+			defender.apply_burn(4.0, 3.0)
+		elif kind == "sand":
+			defender.apply_slow(4.0)
+		elif kind == "tide":
+			defender.apply_slow(3.0)
+		elif kind == "quake":
+			shake = maxf(shake, 0.5)
+			spawn_burst(Vector3(defender.position.x, 0.3, 0), Color(0.62, 0.50, 0.34), 50, 4.0)
 
 	if float(defender.hp) <= 0.0:
 		defender.state = "dead"
@@ -644,6 +1008,66 @@ func _show_callout(txt: String) -> void:
 func _hide_callout() -> void:
 	if callout_lbl != null:
 		callout_lbl.visible = false
+
+# --- v0.3.0 fatality ---
+
+func _begin_fatality(player_won: bool) -> void:
+	fatality_active = true
+	fatality_pending = true
+	fatality_player_won = player_won
+	fatality_bonus = 0
+	match_active = false
+	Engine.time_scale = 0.35
+	fatality_lbl.text = _tr("finish_him")
+	fatality_lbl.visible = true
+	fatality_btn.visible = true
+	audio.play_tone(520.0, 0.4, 0.30, 260.0, 0)
+	# 4.0s window in real time (ignore the slow-mo time scale)
+	get_tree().create_timer(4.0, true, false, true).timeout.connect(_on_fatality_timeout)
+
+func _on_fatality_pressed() -> void:
+	if not fatality_pending:
+		return
+	fatality_pending = false
+	fatality_btn.visible = false
+	fatality_bonus = 150
+	var winner: Node3D = player
+	var loser: Node3D = enemy
+	winner.play_anim("Punch_Cross", 0.7)
+	winner.state = "attack"
+	winner.state_timer = 1.6
+	loser.state = "dead"
+	spawn_burst(Vector3(loser.position.x, 1.2, 0), _ability_color(str(winner.cfg.get("ability", {}).get("kind", ""))), 60, 8.0)
+	flash_screen(Color(1.0, 0.2, 0.15), 0.35)
+	shake = 0.6
+	hitstop = 0.25
+	fatality_lbl.text = _tr("fatality")
+	audio.play_hit(true)
+	audio.play_ability(str(winner.cfg.get("ability", {}).get("kind", "")))
+	get_tree().create_timer(1.6, true, false, true).timeout.connect(_finish_fatality_result)
+
+func _on_fatality_timeout() -> void:
+	if not fatality_pending:
+		return
+	fatality_pending = false
+	# Window expired: normal KO, result as usual
+	_finish_fatality_result()
+
+func _finish_fatality_result() -> void:
+	if not fatality_active:
+		return
+	fatality_active = false
+	_end_fatality_ui()
+	_show_match_result(fatality_player_won, fatality_bonus)
+
+func _end_fatality_ui() -> void:
+	fatality_pending = false
+	fatality_active = false
+	Engine.time_scale = 1.0
+	if fatality_lbl != null:
+		fatality_lbl.visible = false
+	if fatality_btn != null:
+		fatality_btn.visible = false
 
 func _handle_round_end(player_won: bool) -> void:
 	if not match_active:
@@ -664,21 +1088,32 @@ func _handle_round_end(player_won: bool) -> void:
 			get_tree().create_timer(1.1).timeout.connect(_start_match)
 			return
 
+	# Match decided: boss + arena winners get the FINISH HIM! window
+	if player_won and (game_mode == "boss" or game_mode == "arena"):
+		_begin_fatality(true)
+		return
+	_show_match_result(player_won, 0)
+
+func _show_match_result(player_won: bool, fatality_bonus_amt: int) -> void:
 	match_active = false
 	audio.combat_music_active = false
 	var d: Dictionary = GameData.get_i18n().get(save["lang"], GameData.get_i18n()["en"])
 	result_title.text = str(d["victory"]) if player_won else str(d["defeat"])
 	var r_dinars: int = (380 if game_mode == "boss" else 160) if player_won else 50
 	var r_gems: int = 15 if (player_won and game_mode == "boss") else 0
+	r_dinars += fatality_bonus_amt
 	save["dinars"] = int(save["dinars"]) + r_dinars
 	save["gems"] = int(save["gems"]) + r_gems
 	p_rounds = 0
 	e_rounds = 0
 	_persist_save()
 	result_reward.text = "+%d Dinars  |  +%d Gems" % [r_dinars, r_gems]
+	if fatality_bonus_amt > 0:
+		result_reward.text += "  (includes +%d FATALITY bonus)" % fatality_bonus_amt
 	get_tree().create_timer(0.85).timeout.connect(_show_result_overlay)
 
 func _show_result_overlay() -> void:
+	_end_fatality_ui()
 	combat_hud.visible = false
 	top_bar.visible = true
 	_show_panel(screen_result)
@@ -686,6 +1121,26 @@ func _show_result_overlay() -> void:
 func _process(delta: float) -> void:
 	if preview_rig != null:
 		preview_rig.rotation.y += delta * 0.9
+
+	if fatality_active:
+		# Slow-mo cinematic: keep fighters animating, no input / AI / timer
+		if player != null and enemy != null:
+			player.step_fighter(delta, enemy)
+			enemy.step_fighter(delta, player)
+		shake = maxf(0.0, shake - delta * 1.8)
+		return
+
+	if intro_active:
+		if player != null and enemy != null:
+			_advance_intro(delta)
+			player.step_fighter(delta, enemy)
+			enemy.step_fighter(delta, player)
+			var mid_x: float = (player.position.x + enemy.position.x) * 0.5
+			var span: float = absf(player.position.x - enemy.position.x)
+			var target_z: float = clampf(4.6 + span * 0.62, 5.0, 8.2)
+			cam.position = cam.position.lerp(Vector3(mid_x, 2.35, target_z), delta * 1.8)
+			cam.look_at(Vector3(cam.position.x, 1.05, 0.0))
+		return
 
 	if not match_active or player == null or enemy == null:
 		return
@@ -697,10 +1152,23 @@ func _process(delta: float) -> void:
 	var move_x: float = joy_stick.axis_x
 	if joy_stick.axis_y < -0.65:
 		player.jump()
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): move_x += 1.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): move_x -= 1.0
+	# v0.3.0 joystick DOWN = crouch (C-crouch idea, touch form)
+	if joy_stick.axis_y > 0.65:
+		player.set_crouch(true)
+	else:
+		player.set_crouch(false)
+	# v0.3.0 joystick BACK (away from enemy) = auto-defend: hold block in
+	# place, no movement. Reuses set_block, so the perfect-parry window
+	# still triggers on block start. Mid-attack it does nothing until idle.
+	var back_held: bool = joy_stick.axis_x * float(player.facing) < -0.55
+	if back_held:
+		player.set_block(true)
+		move_x = 0.0
+	elif joy_block_active and (player.state == "block" or player.state == "parry"):
+		player.set_block(false)
+	joy_block_active = back_held
 	if player.state == "idle" and absf(move_x) > 0.12:
-		player.vx = clampf(move_x, -1.0, 1.0) * float(player.move_speed)
+		player.vx = clampf(move_x, -1.0, 1.0) * float(player.effective_speed())
 
 	player.step_fighter(delta, enemy)
 	_step_enemy_ai(delta)
@@ -714,22 +1182,24 @@ func _process(delta: float) -> void:
 	else:
 		hud_timer.text = "INF"
 
-	var mid_x: float = (player.position.x + enemy.position.x) * 0.5
-	var span: float = absf(player.position.x - enemy.position.x)
-	var target_z: float = clampf(4.6 + span * 0.62, 5.0, 8.2)
+	var mid_x2: float = (player.position.x + enemy.position.x) * 0.5
+	var span2: float = absf(player.position.x - enemy.position.x)
+	var target_z2: float = clampf(4.6 + span2 * 0.62, 5.0, 8.2)
 	var sx: float = randf_range(-shake, shake) if shake > 0.0 else 0.0
 	var sy: float = randf_range(-shake, shake) if shake > 0.0 else 0.0
 	shake = maxf(0.0, shake - delta * 1.8)
 
-	cam.position.x = lerpf(cam.position.x, mid_x, delta * 6.0) + sx
-	cam.position.z = lerpf(cam.position.z, target_z, delta * 5.0)
+	cam.position.x = lerpf(cam.position.x, mid_x2, delta * 6.0) + sx
+	cam.position.z = lerpf(cam.position.z, target_z2, delta * 5.0)
 	cam.position.y = 1.65 + sy
 	cam.look_at(Vector3(cam.position.x, 1.05, 0.0))
 
 	hud_p_hp.set_ratio(float(player.hp) / maxf(1.0, float(player.max_hp)))
 	hud_p_en.set_ratio(float(player.energy) / 100.0)
+	hud_p_st.set_ratio(float(player.stamina) / 100.0)
 	hud_e_hp.set_ratio(float(enemy.hp) / maxf(1.0, float(enemy.max_hp)))
 	hud_e_en.set_ratio(float(enemy.energy) / 100.0)
+	hud_e_st.set_ratio(float(enemy.stamina) / 100.0)
 	hud_p_hp_txt.text = "%d / %d" % [int(player.hp), int(player.max_hp)]
 	hud_e_hp_txt.text = "%d / %d" % [int(enemy.hp), int(enemy.max_hp)]
 	btn_spc.set_enabled_state(float(player.energy) >= 40.0)
@@ -738,6 +1208,7 @@ func _process(delta: float) -> void:
 func _step_enemy_ai(delta: float) -> void:
 	if enemy.state == "dead" or game_mode == "training":
 		return
+	var diff: Dictionary = _current_diff()
 	var hp_pct: float = float(enemy.hp) / float(enemy.max_hp)
 	var phase: int = 3 if hp_pct <= 0.25 else (2 if hp_pct <= 0.6 else 1)
 	if bool(enemy.cfg.get("is_boss", false)):
@@ -750,23 +1221,45 @@ func _step_enemy_ai(delta: float) -> void:
 	var dist: float = absf(player.position.x - enemy.position.x)
 	if dist > 2.0 and enemy.state == "idle":
 		var dir: float = 1.0 if player.position.x > enemy.position.x else -1.0
-		enemy.vx = dir * float(enemy.move_speed) * (1.22 if phase == 3 else 1.0)
+		enemy.vx = dir * float(enemy.effective_speed()) * float(diff["approach"]) * (1.22 if phase == 3 else 1.0)
 
 	ai_timer -= delta
 	if ai_timer > 0.0:
 		return
-	ai_timer = 0.22 if phase == 3 else (0.30 if phase == 2 else 0.40)
+	# Normal keeps the phase-based reaction (0.40/0.30/0.22); easy/hard use flat values
+	var react: float = float(diff["react"])
+	if str(save.get("ai_difficulty", "normal")) == "normal":
+		react = 0.22 if phase == 3 else (0.30 if phase == 2 else 0.40)
+	ai_timer = react
 
-	if player.state == "attack" and dist < 2.5 and randf() < 0.42:
+	# Hard: dodge the player's ult/spc when it comes out in range
+	if float(diff["dodge"]) > 0.0 and player.state == "attack" and dist < 2.5:
+		var p_type: String = str(player.active_attack.get("type", ""))
+		if (p_type == "ult" or p_type == "spc") and randf() < float(diff["dodge"]):
+			var away: float = 1.0 if enemy.position.x > player.position.x else -1.0
+			if enemy.dodge(away):
+				return
+
+	# v0.3.0 Hard only: crouch defensively when the player attacks in range
+	if str(save.get("ai_difficulty", "normal")) == "hard" and player.state == "attack" and dist < 2.5 and randf() < 0.12:
+		if enemy.state == "idle":
+			enemy.set_crouch(true)
+			get_tree().create_timer(0.5).timeout.connect(_release_enemy_crouch)
+			return
+
+	if player.state == "attack" and dist < 2.5 and randf() < float(diff["block"]):
 		enemy.set_block(true)
 		get_tree().create_timer(0.38).timeout.connect(_release_enemy_block)
 		return
 
 	if dist <= 2.35:
-		if float(enemy.energy) >= 100.0 and phase >= 2:
+		# Stamina gate: not enough stamina -> idle and regen
+		if float(enemy.stamina) < 8.0:
+			return
+		if float(enemy.energy) >= 100.0 and bool(diff["use_ult"]) and phase >= int(diff["ult_phase"]):
 			enemy.start_attack("ult")
 			return
-		if float(enemy.energy) >= 40.0 and randf() < 0.35:
+		if float(enemy.energy) >= 40.0 and randf() < float(diff["spc"]):
 			enemy.start_attack("spc")
 			return
 		enemy.start_attack("light" if randf() < 0.6 else "heavy")
@@ -774,3 +1267,7 @@ func _step_enemy_ai(delta: float) -> void:
 func _release_enemy_block() -> void:
 	if enemy != null:
 		enemy.set_block(false)
+
+func _release_enemy_crouch() -> void:
+	if enemy != null:
+		enemy.set_crouch(false)

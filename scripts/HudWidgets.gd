@@ -69,6 +69,11 @@ class SWCircleBtn extends Control:
 		ring_col = col
 		custom_minimum_size = Vector2(btn_size, btn_size)
 
+	# v0.3.0: let the SPC button show the selected fighter's ability short name.
+	func set_label_txt(txt: String) -> void:
+		label_txt = txt
+		queue_redraw()
+
 	func set_enabled_state(v: bool) -> void:
 		if is_enabled != v:
 			is_enabled = v
@@ -95,7 +100,10 @@ class SWCircleBtn extends Control:
 		var c: Vector2 = size * 0.5
 		var r: float = minf(size.x, size.y) * 0.44
 		var alpha: float = 1.0 if is_enabled else 0.32
-		var fill_a: float = 0.52 if is_down else 0.26
+		# v0.3.0: more transparent face so the arena shows through.
+		# Face alpha 0.18 idle / 0.34 pressed (was 0.26 / 0.52);
+		# ring (0.92) and label text (0.95) stay fully readable.
+		var fill_a: float = 0.34 if is_down else 0.18
 		draw_circle(c, r, Color(ring_col.r * 0.35, ring_col.g * 0.35, ring_col.b * 0.35, fill_a * alpha))
 		draw_arc(c, r, 0.0, TAU, 36, Color(ring_col.r, ring_col.g, ring_col.b, 0.92 * alpha), 3.0, true)
 		draw_arc(c, r * 0.82, 0.0, TAU, 32, Color(1, 1, 1, 0.25 * alpha), 1.2, true)
