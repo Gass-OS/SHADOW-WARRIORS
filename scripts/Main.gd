@@ -18,7 +18,8 @@ var save := {
 	"last_gift_ts": 0,
 	"lang": "en",
 	"fps": 60,
-	"ai_difficulty": "normal"
+	"ai_difficulty": "normal",
+	"wins": 0
 }
 const SAVE_PATH := "user://sw_tunisia_save.json"
 
@@ -103,6 +104,7 @@ var btn_spc: Control
 var btn_ult: Control
 
 var select_detail_lbl: Label
+var select_train_hint_lbl: Label
 var select_action_btn: Button
 var select_upgrade_btn: Button
 var diff_btns: Dictionary = {}
@@ -113,6 +115,8 @@ func _ready() -> void:
 	_load_save()
 	if not save.has("ai_difficulty"):
 		save["ai_difficulty"] = "normal"
+	if not save.has("wins"):
+		save["wins"] = 0
 	arena = Arena3DScript.new()
 	add_child(arena)
 
@@ -146,7 +150,7 @@ func _persist_save() -> void:
 
 func _refresh_currency() -> void:
 	if top_currency != null:
-		top_currency.text = "Dinars: %d  |  Gems: %d" % [int(save["dinars"]), int(save["gems"])]
+		top_currency.text = "Dinars: %d  |  Gems: %d  |  Wins: %d" % [int(save["dinars"]), int(save["gems"]), int(save.get("wins", 0))]
 	if gift_btn != null:
 		var now_ts: int = int(Time.get_unix_time_from_system())
 		var can_claim: bool = (now_ts - int(save.get("last_gift_ts", 0))) >= 3600
@@ -243,7 +247,7 @@ func _build_ui() -> void:
 	m_box.add_child(gift_btn)
 	_refresh_currency()
 
-	screen_select = _create_modal_panel(root_ui, Vector2(720, 470))
+	screen_select = _create_modal_panel(root_ui, Vector2(720, 500))
 	var s_box := VBoxContainer.new()
 	s_box.add_theme_constant_override("separation", 10)
 	screen_select.add_child(s_box)
@@ -263,6 +267,13 @@ func _build_ui() -> void:
 	select_detail_lbl = Label.new()
 	select_detail_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	s_box.add_child(select_detail_lbl)
+
+	# v0.3.1 training hint: any warrior is free to try in the dojo
+	select_train_hint_lbl = Label.new()
+	select_train_hint_lbl.text = "TRAINING: try any warrior free"
+	select_train_hint_lbl.modulate = Color(0.42, 0.92, 1.0)
+	select_train_hint_lbl.visible = false
+	s_box.add_child(select_train_hint_lbl)
 
 	select_upgrade_btn = _make_btn("UPGRADE WEAPON (150 Dinars)", Color(0.95, 0.8, 0.35), _upgrade_selected_weapon)
 	s_box.add_child(select_upgrade_btn)
@@ -727,6 +738,21 @@ func _is_fighter_unlocked(f_id: String) -> bool:
 	var arr: Array = save.get("unlocked", ["kasserini"])
 	return arr.has(f_id)
 
+# --- v0.3.1 unlock by wins: grant every fighter whose wins_needed is met ---
+func _check_unlocks() -> Array:
+	var newly: Array = []
+	var wins: int = int(save.get("wins", 0))
+	var arr: Array = save.get("unlocked", ["kasserini"])
+	for f in GameData.get_fighters():
+		var f_id: String = str(f["id"])
+		if not arr.has(f_id) and wins >= int(f.get("wins_needed", 0)):
+			arr.append(f_id)
+			newly.append(str(f["name"]))
+			if not (save.get("weapon_lv", {}) as Dictionary).has(f_id):
+				(save["weapon_lv"] as Dictionary)[f_id] = 1
+	save["unlocked"] = arr
+	return newly
+
 func _select_fighter(idx: int) -> void:
 	selected_idx = idx
 	var f: Dictionary = GameData.get_fighters()[idx]
@@ -734,15 +760,33 @@ func _select_fighter(idx: int) -> void:
 	var unlocked: bool = _is_fighter_unlocked(f_id)
 	var lv: int = int(save["weapon_lv"].get(f_id, 1))
 	var ab: Dictionary = f.get("ability", {})
+	var wins: int = int(save.get("wins", 0))
+	var wins_needed: int = int(f.get("wins_needed", 0))
+	var lock_txt: String = "LV %d" % lv
+	if not unlocked:
+		lock_txt = "LOCKED — Win %d fight%s to unlock (you have %d win%s)" % [
+			wins_needed, "" if wins_needed == 1 else "s",
+			wins, "" if wins == 1 else "s"]
 	select_detail_lbl.text = "%s (%s)\n%s\n%s\nAbility: %s — %s\nHP: %d  |  ATK: %d  |  SPD: %d" % [
-		str(f["name"]), ("LV %d" % lv) if unlocked else ("LOCKED - %d Dinars" % int(f["cost"])),
+		str(f["name"]), lock_txt,
 		str(f["style"]), str(f.get("lore", "")),
 		str(ab.get("name", "—")), str(ab.get("desc", "")),
 		int(float(f["hp"]) + float(lv - 1) * 20.0),
 		int(float(f["atk"]) + float(lv - 1) * 4.5), int(float(f["speed"]) * 15.0)
 	]
 	select_upgrade_btn.visible = unlocked
-	select_action_btn.text = "FIGHT!" if unlocked else ("UNLOCK (%d Dinars)" % int(f["cost"]))
+	if unlocked:
+		select_action_btn.text = "FIGHT!"
+		select_action_btn.disabled = false
+	elif game_mode == "training":
+		select_action_btn.text = "TRY IN TRAINING"
+		select_action_btn.disabled = false
+	else:
+		var remaining: int = wins_needed - wins
+		select_action_btn.text = "WIN %d MORE FIGHT%s" % [remaining, "" if remaining == 1 else "S"]
+		select_action_btn.disabled = true
+	if select_train_hint_lbl != null:
+		select_train_hint_lbl.visible = (game_mode == "training")
 	if btn_spc != null:
 		btn_spc.set_label_txt(str(ab.get("short", "SPC")))
 
@@ -755,19 +799,10 @@ func _select_fighter(idx: int) -> void:
 func _on_select_primary_action() -> void:
 	var f: Dictionary = GameData.get_fighters()[selected_idx]
 	var f_id: String = str(f["id"])
-	if _is_fighter_unlocked(f_id):
+	# v0.3.1: no more paying dinars to unlock — wins earn fighters.
+	# Training lets anyone try a locked warrior for free.
+	if _is_fighter_unlocked(f_id) or game_mode == "training":
 		_start_match()
-	else:
-		var cost: int = int(f["cost"])
-		if int(save["dinars"]) >= cost:
-			save["dinars"] = int(save["dinars"]) - cost
-			var arr: Array = save.get("unlocked", ["kasserini"])
-			arr.append(f_id)
-			save["unlocked"] = arr
-			save["weapon_lv"][f_id] = 1
-			_persist_save()
-			audio.play_parry()
-			_select_fighter(selected_idx)
 
 func _upgrade_selected_weapon() -> void:
 	var f_id: String = str(GameData.get_fighters()[selected_idx]["id"])
@@ -1075,7 +1110,12 @@ func _handle_round_end(player_won: bool) -> void:
 	if game_mode == "survival" and player_won:
 		survival_wave += 1
 		save["dinars"] = int(save["dinars"]) + 120
+		# v0.3.1: clearing a wave counts as a win for fighter unlocks
+		save["wins"] = int(save.get("wins", 0)) + 1
+		var newly: Array = _check_unlocks()
 		_persist_save()
+		if newly.size() > 0:
+			_show_callout("NEW WARRIOR UNLOCKED: %s!" % " / ".join(newly))
 		_start_match()
 		return
 
@@ -1104,12 +1144,20 @@ func _show_match_result(player_won: bool, fatality_bonus_amt: int) -> void:
 	r_dinars += fatality_bonus_amt
 	save["dinars"] = int(save["dinars"]) + r_dinars
 	save["gems"] = int(save["gems"]) + r_gems
+	# v0.3.1: a match win earns a win toward fighter unlocks
+	var newly_unlocked: Array = []
+	if player_won and game_mode != "training":
+		save["wins"] = int(save.get("wins", 0)) + 1
+		newly_unlocked = _check_unlocks()
 	p_rounds = 0
 	e_rounds = 0
 	_persist_save()
 	result_reward.text = "+%d Dinars  |  +%d Gems" % [r_dinars, r_gems]
 	if fatality_bonus_amt > 0:
 		result_reward.text += "  (includes +%d FATALITY bonus)" % fatality_bonus_amt
+	result_reward.text += "\nTotal wins: %d" % int(save.get("wins", 0))
+	for n in newly_unlocked:
+		result_reward.text += "\nNEW WARRIOR UNLOCKED: %s!" % str(n)
 	get_tree().create_timer(0.85).timeout.connect(_show_result_overlay)
 
 func _show_result_overlay() -> void:
